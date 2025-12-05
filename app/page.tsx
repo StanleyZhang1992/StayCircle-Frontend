@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from "react";
 import type { Property, PropertyCreate } from "../lib/api";
-import { listProperties, createProperty } from "../lib/api";
-import { isLandlord } from "../lib/auth";
+import { listProperties, createProperty, createBooking } from "../lib/api";
+import { isLandlord, getAuth } from "../lib/auth";
 
 /**
  * HomePage
@@ -15,6 +15,7 @@ export default function HomePage() {
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [canCreate, setCanCreate] = useState(false);
+  const [canBook, setCanBook] = useState(false);
 
   async function refresh() {
     setLoading(true);
@@ -42,6 +43,8 @@ export default function HomePage() {
 
   useEffect(() => {
     setCanCreate(isLandlord());
+    const a = getAuth();
+    setCanBook(!!a && a.user?.role === "tenant");
   }, []);
 
   return (
@@ -75,7 +78,7 @@ export default function HomePage() {
         ) : items.length === 0 ? (
           <p className="text-sm text-gray-600">{canCreate ? "No properties yet. Create one above." : "No properties yet."}</p>
         ) : (
-          <PropertiesList items={items} />
+          <PropertiesList items={items} canBook={canBook} />
         )}
       </section>
     </main>
@@ -175,7 +178,7 @@ function CreatePropertyForm({ onCreated }: { onCreated: (p: Property) => void })
  * PropertiesList
  * - Presentation-only list.
  */
-function PropertiesList({ items }: { items: Property[] }) {
+function PropertiesList({ items, canBook }: { items: Property[]; canBook: boolean }) {
   return (
     <ul className="grid gap-2">
       {items.map((p) => (
@@ -185,6 +188,51 @@ function PropertiesList({ items }: { items: Property[] }) {
             <span className="text-sm text-gray-700">${(p.price_cents / 100).toFixed(2)}</span>
           </div>
           <div className="mt-1 text-xs text-gray-500">ID: {p.id}</div>
+
+          {canBook && (
+            <form
+              className="mt-3 grid gap-2"
+              onSubmit={async (e) => {
+                e.preventDefault();
+                const form = e.currentTarget as HTMLFormElement;
+                const fd = new FormData(form);
+                const start = String(fd.get("start_date") || "");
+                const end = String(fd.get("end_date") || "");
+                if (!start || !end) {
+                  window.alert("Please select start and end dates");
+                  return;
+                }
+                try {
+                  await createBooking({ property_id: p.id, start_date: start, end_date: end });
+                  window.alert("Booking confirmed");
+                  // Optionally clear inputs (defensive: tolerate unmounted form)
+                  form?.reset();
+                } catch (err) {
+                  const msg = err instanceof Error ? err.message : "Failed to create booking";
+                  window.alert(msg);
+                }
+              }}
+            >
+              <div className="flex flex-wrap items-center gap-2">
+                <input
+                  name="start_date"
+                  type="date"
+                  className="rounded-md border border-gray-300 px-2 py-1 text-sm outline-none ring-blue-500 focus:ring-2"
+                />
+                <input
+                  name="end_date"
+                  type="date"
+                  className="rounded-md border border-gray-300 px-2 py-1 text-sm outline-none ring-blue-500 focus:ring-2"
+                />
+                <button
+                  type="submit"
+                  className="rounded-md border border-emerald-600 bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700"
+                >
+                  Book
+                </button>
+              </div>
+            </form>
+          )}
         </li>
       ))}
     </ul>

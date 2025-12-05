@@ -92,3 +92,75 @@ export async function login(payload: LoginPayload): Promise<TokenResponse> {
   saveAuth({ token: data.access_token, user: data.user });
   return data;
 }
+
+/* =========================
+   Bookings API (Sprint 2)
+   ========================= */
+
+export interface Booking {
+  id: number;
+  property_id: number;
+  guest_id: number;
+  start_date: string; // "YYYY-MM-DD"
+  end_date: string;   // "YYYY-MM-DD"
+  status: "reserved" | "cancelled";
+}
+
+export interface BookingCreate {
+  property_id: number;
+  start_date: string; // "YYYY-MM-DD"
+  end_date: string;   // "YYYY-MM-DD"
+}
+
+export async function createBooking(data: BookingCreate): Promise<Booking> {
+  const token = getToken();
+  const res = await fetch(`${API_BASE}/api/v1/bookings`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {})
+    },
+    body: JSON.stringify(data)
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Failed to create booking: ${res.status} ${res.statusText} ${text}`);
+  }
+  return res.json();
+}
+
+export async function listMyBookings(params?: { limit?: number; offset?: number }): Promise<Booking[]> {
+  const token = getToken();
+  const qs = new URLSearchParams();
+  if (params?.limit != null) qs.set("limit", String(params.limit));
+  if (params?.offset != null) qs.set("offset", String(params.offset));
+  const res = await fetch(`${API_BASE}/api/v1/bookings/me${qs.toString() ? `?${qs.toString()}` : ""}`, {
+    method: "GET",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {})
+    },
+    cache: "no-store"
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Failed to list bookings: ${res.status} ${res.statusText} ${text}`);
+  }
+  return res.json();
+}
+
+export async function cancelBooking(bookingId: number): Promise<Booking> {
+  const token = getToken();
+  const res = await fetch(`${API_BASE}/api/v1/bookings/${bookingId}`, {
+    method: "DELETE",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {})
+    }
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Failed to cancel booking: ${res.status} ${res.statusText} ${text}`);
+  }
+  return res.json();
+}
