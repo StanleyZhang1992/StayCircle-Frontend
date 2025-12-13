@@ -1,14 +1,62 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { listMyBookings, cancelBooking, type Booking } from "../../lib/api";
+import { listMyBookings, cancelBooking, approveBooking, declineBooking, type Booking } from "../../lib/api";
 import { getAuth } from "../../lib/auth";
+
+type Chip = { text: string; className: string };
+
+function chipForStatus(status: Booking["status"]): Chip {
+  switch (status) {
+    case "requested":
+      return { text: "pending approval", className: "rounded bg-amber-100 px-2 py-0.5 text-xs text-amber-800" };
+    case "pending_payment":
+      return { text: "pending payment", className: "rounded bg-indigo-100 px-2 py-0.5 text-xs text-indigo-800" };
+    case "confirmed":
+      return { text: "confirmed", className: "rounded bg-emerald-100 px-2 py-0.5 text-xs text-emerald-700" };
+    case "cancelled":
+      return { text: "cancelled", className: "rounded bg-gray-200 px-2 py-0.5 text-xs text-gray-700" };
+    case "cancelled_expired":
+      return { text: "expired", className: "rounded bg-gray-200 px-2 py-0.5 text-xs text-gray-700" };
+    case "declined":
+      return { text: "declined", className: "rounded bg-rose-100 px-2 py-0.5 text-xs text-rose-700" };
+    default:
+      return { text: status, className: "rounded bg-gray-200 px-2 py-0.5 text-xs text-gray-700" };
+  }
+}
+
+function isCancellable(status: Booking["status"]): boolean {
+  // Allow cancel while non-terminal
+  return status === "requested" || status === "pending_payment" || status === "confirmed";
+}
+
+function useSecondTicker() {
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setTick((t) => t + 1), 1000);
+    return () => clearInterval(id);
+  }, []);
+  return tick;
+}
+
+function countdown(expires_at?: string | null): string | null {
+  if (!expires_at) return null;
+  const end = new Date(expires_at).getTime();
+  const now = Date.now();
+  const ms = Math.max(0, end - now);
+  const sec = Math.floor(ms / 1000);
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return `${m}:${s.toString().padStart(2, "0")}`;
+}
 
 export default function MyBookingsPage() {
   const [items, setItems] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [authed, setAuthed] = useState<boolean>(false);
+  const [isLandlord, setIsLandlord] = useState<boolean>(false);
+  const tick = useSecondTicker();
 
   async function refresh() {
     setLoading(true);
@@ -25,9 +73,31 @@ export default function MyBookingsPage() {
   }
 
   useEffect(() => {
-    setAuthed(!!getAuth());
+    const a = getAuth();
+    setAuthed(!!a);
+    setIsLandlord(!!a && a.user?.role === "landlord");
     refresh();
   }, []);
+
+  async function onApprove(id: number) {
+    try {
+      const updated = await approveBooking(id);
+      setItems((prev) => prev.map((b) => (b.id === id ? updated : b)));
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : "Failed to approve booking";
+      alert(message);
+    }
+  }
+
+  async function onDecline(id: number) {
+    try {
+      const updated = await declineBooking(id);
+      setItems((prev) => prev.map((b) => (b.id === id ? updated : b)));
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : "Failed to decline booking";
+      alert(message);
+    }
+  }
 
   async function onCancel(id: number) {
     try {
@@ -70,41 +140,61 @@ export default function MyBookingsPage() {
         <p className="text-sm text-gray-600">No bookings found.</p>
       ) : (
         <ul className="grid gap-2">
-          {items.map((b) => (
-            <li key={b.id} className="rounded-lg border border-gray-200 p-3">
-              <div className="flex items-center justify-between">
-                <div className="text-sm">
-                  <div>
-                    Property ID: <span className="font-medium">{b.property_id}</span>
+          {items.map((b) => {
+            const chip = chipForStatus(b.status);
+            const showCountdown = b.status === "pending_payment" && b.expires_at;
+            const left = countdown(b.expires_at);
+            return (
+              <li key={b.id} className="rounded-lg border border-gray-200 p-3">
+                <div className="flex items-center justify-between">
+                  <div className="text-sm">
+                    <div>
+                      Property ID: <span className="font-medium">{b.property_id}</span>
+                    </div>
+                    <div className="text-gray-700">
+                      {b.start_date} → {b.end_date}
+                    </div>
+                    <div className="text-xs text-gray-500">Booking ID: {b.id}</div>
+                    {showCountdown && (
+                      <div className="mt-1 text-xs text-indigo-700">
+                        Hold expires in {left}
+                      </div>
+                    )}
                   </div>
-                  <div className="text-gray-700">
-                    {b.start_date} → {b.end_date}
+                  <div className="flex items-center gap-2">
+                    <span className={chip.className}>{chip.text}</span>
+                    {isLandlord && b.status === "requested" && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => onApprove(b.id)}
+                          className="rounded-md border border-emerald-600 bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700"
+                        >
+                          Approve
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onDecline(b.id)}
+                          className="rounded-md border border-rose-600 bg-rose-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-rose-700"
+                        >
+                          Decline
+                        </button>
+                      </>
+                    )}
+                    {isCancellable(b.status) && (
+                      <button
+                        type="button"
+                        onClick={() => onCancel(b.id)}
+                        className="rounded-md border border-red-600 bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-700"
+                      >
+                        Cancel
+                      </button>
+                    )}
                   </div>
-                  <div className="text-xs text-gray-500">Booking ID: {b.id}</div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <span
-                    className={
-                      b.status === "reserved"
-                        ? "rounded bg-emerald-100 px-2 py-0.5 text-xs text-emerald-700"
-                        : "rounded bg-gray-200 px-2 py-0.5 text-xs text-gray-700"
-                    }
-                  >
-                    {b.status}
-                  </span>
-                  {b.status === "reserved" && (
-                    <button
-                      type="button"
-                      onClick={() => onCancel(b.id)}
-                      className="rounded-md border border-red-600 bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-700"
-                    >
-                      Cancel
-                    </button>
-                  )}
-                </div>
-              </div>
-            </li>
-          ))}
+              </li>
+            );
+          })}
         </ul>
       )}
     </main>

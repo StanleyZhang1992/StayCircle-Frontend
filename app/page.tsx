@@ -1,9 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { Property, PropertyCreate } from "../lib/api";
+import type { Property, PropertyCreate, BookingCreateResponse, NextAction } from "../lib/api";
 import { listProperties, createProperty, createBooking } from "../lib/api";
 import { isLandlord, getAuth } from "../lib/auth";
+
+function isPayAction(a: NextAction): a is { type: "pay"; expires_at: string } {
+  return a.type === "pay";
+}
 
 /**
  * HomePage
@@ -76,7 +80,9 @@ export default function HomePage() {
         {loading ? (
           <p className="text-sm text-gray-600">Loading...</p>
         ) : items.length === 0 ? (
-          <p className="text-sm text-gray-600">{canCreate ? "No properties yet. Create one above." : "No properties yet."}</p>
+          <p className="text-sm text-gray-600">
+            {canCreate ? "No properties yet. Create one above." : "No properties yet."}
+          </p>
         ) : (
           <PropertiesList items={items} canBook={canBook} />
         )}
@@ -93,6 +99,7 @@ export default function HomePage() {
 function CreatePropertyForm({ onCreated }: { onCreated: (p: Property) => void }) {
   const [title, setTitle] = useState("");
   const [priceUsd, setPriceUsd] = useState("");
+  const [requiresApproval, setRequiresApproval] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -115,6 +122,7 @@ function CreatePropertyForm({ onCreated }: { onCreated: (p: Property) => void })
     const payload: PropertyCreate = {
       title: titleTrimmed,
       price_cents: Math.round(priceNumber * 100),
+      requires_approval: requiresApproval,
     };
 
     setSubmitting(true);
@@ -123,6 +131,7 @@ function CreatePropertyForm({ onCreated }: { onCreated: (p: Property) => void })
       onCreated(created);
       setTitle("");
       setPriceUsd("");
+      setRequiresApproval(false);
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : "Failed to create property";
       setErr(message);
@@ -159,6 +168,16 @@ function CreatePropertyForm({ onCreated }: { onCreated: (p: Property) => void })
         />
       </label>
 
+      <label className="inline-flex items-center gap-2 text-sm text-gray-700">
+        <input
+          type="checkbox"
+          checked={requiresApproval}
+          onChange={(e) => setRequiresApproval(e.target.checked)}
+          className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+        />
+        <span>Requires host approval</span>
+      </label>
+
       <div className="flex items-center gap-2">
         <button
           type="submit"
@@ -176,65 +195,121 @@ function CreatePropertyForm({ onCreated }: { onCreated: (p: Property) => void })
 
 /**
  * PropertiesList
- * - Presentation-only list.
+ * - Presentation + simple booking request flow (Sprint 7).
+ * - Shows status banners for awaiting approval / pending payment countdown.
  */
 function PropertiesList({ items, canBook }: { items: Property[]; canBook: boolean }) {
+  // Track per-property next_action state
+  const [awaitApprovalIds, setAwaitApprovalIds] = useState<Set<number>>(() => new Set());
+  const [paymentHolds, setPaymentHolds] = useState<Record<number, string>>({}); // property_id -> expires_at (RFC3339)
+  const [tick, setTick] = useState(0); // force rerender each second for countdown
+
+  useEffect(() => {
+    const id = setInterval(() => setTick((t) => t + 1), 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  function timeLeft(expiresAt?: string | null): string | null {
+    if (!expiresAt) return null;
+    const end = new Date(expiresAt).getTime();
+    const now = Date.now();
+    const ms = Math.max(0, end - now);
+    const sec = Math.floor(ms / 1000);
+    const m = Math.floor(sec / 60);
+    const s = sec % 60;
+    return `${m}:${s.toString().padStart(2, "0")}`;
+  }
+
   return (
     <ul className="grid gap-2">
-      {items.map((p) => (
-        <li key={p.id} className="rounded-lg border border-gray-200 p-3">
-          <div className="flex items-baseline justify-between">
-            <strong className="text-sm">{p.title}</strong>
-            <span className="text-sm text-gray-700">${(p.price_cents / 100).toFixed(2)}</span>
-          </div>
-          <div className="mt-1 text-xs text-gray-500">ID: {p.id}</div>
+      {items.map((p) => {
+        const holdExpiresAt = paymentHolds[p.id];
+        const holdLeft = timeLeft(holdExpiresAt);
+        const awaiting = awaitApprovalIds.has(p.id);
 
-          {canBook && (
-            <form
-              className="mt-3 grid gap-2"
-              onSubmit={async (e) => {
-                e.preventDefault();
-                const form = e.currentTarget as HTMLFormElement;
-                const fd = new FormData(form);
-                const start = String(fd.get("start_date") || "");
-                const end = String(fd.get("end_date") || "");
-                if (!start || !end) {
-                  window.alert("Please select start and end dates");
-                  return;
-                }
-                try {
-                  await createBooking({ property_id: p.id, start_date: start, end_date: end });
-                  window.alert("Booking confirmed");
-                  // Optionally clear inputs (defensive: tolerate unmounted form)
-                  form?.reset();
-                } catch (err) {
-                  const msg = err instanceof Error ? err.message : "Failed to create booking";
-                  window.alert(msg);
-                }
-              }}
-            >
-              <div className="flex flex-wrap items-center gap-2">
-                <input
-                  name="start_date"
-                  type="date"
-                  className="rounded-md border border-gray-300 px-2 py-1 text-sm outline-none ring-blue-500 focus:ring-2"
-                />
-                <input
-                  name="end_date"
-                  type="date"
-                  className="rounded-md border border-gray-300 px-2 py-1 text-sm outline-none ring-blue-500 focus:ring-2"
-                />
-                <button
-                  type="submit"
-                  className="rounded-md border border-emerald-600 bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700"
-                >
-                  Book
-                </button>
+        return (
+          <li key={p.id} className="rounded-lg border border-gray-200 p-3">
+            <div className="flex items-baseline justify-between">
+              <strong className="text-sm">{p.title}</strong>
+              <span className="text-sm text-gray-700">${(p.price_cents / 100).toFixed(2)}</span>
+            </div>
+            <div className="mt-1 text-xs text-gray-500">
+              ID: {p.id} {p.requires_approval ? "• requires approval" : ""}
+            </div>
+
+            {awaiting && (
+              <div className="mt-2 rounded border border-amber-300 bg-amber-50 px-2 py-1 text-xs text-amber-800">
+                Awaiting host approval
               </div>
-            </form>
-          )}
-        </li>
-      ))}
+            )}
+            {!!holdExpiresAt && (
+              <div className="mt-2 rounded border border-emerald-300 bg-emerald-50 px-2 py-1 text-xs text-emerald-800">
+                Payment hold active — expires in {holdLeft}
+              </div>
+            )}
+
+            {canBook && (
+              <form
+                className="mt-3 grid gap-2"
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  const form = e.currentTarget as HTMLFormElement;
+                  const fd = new FormData(form);
+                  const start = String(fd.get("start_date") || "");
+                  const end = String(fd.get("end_date") || "");
+                  if (!start || !end) {
+                    window.alert("Please select start and end dates");
+                    return;
+                  }
+                  try {
+                    const res: BookingCreateResponse = await createBooking({
+                      property_id: p.id,
+                      start_date: start,
+                      end_date: end,
+                    });
+                    if (res.next_action.type === "await_approval") {
+                      setAwaitApprovalIds((prev) => new Set([...prev, p.id]));
+                      window.alert("Request submitted. Awaiting host approval.");
+                    } else if (isPayAction(res.next_action)) {
+                      const pay = res.next_action;
+                      setPaymentHolds((prev) => ({ ...prev, [p.id]: pay.expires_at }));
+                      setAwaitApprovalIds((prev) => {
+                        const n = new Set(prev);
+                        n.delete(p.id);
+                        return n;
+                      });
+                      window.alert("Booking pending payment. Hold created.");
+                    }
+                    form?.reset();
+                  } catch (err) {
+                    const msg = err instanceof Error ? err.message : "Failed to create booking";
+                    window.alert(msg);
+                  }
+                }}
+              >
+                <div className="flex flex-wrap items-center gap-2">
+                  <input
+                    name="start_date"
+                    type="date"
+                    className="rounded-md border border-gray-300 px-2 py-1 text-sm outline-none ring-blue-500 focus:ring-2"
+                  />
+                  <input
+                    name="end_date"
+                    type="date"
+                    className="rounded-md border border-gray-300 px-2 py-1 text-sm outline-none ring-blue-500 focus:ring-2"
+                  />
+                  <button
+                    type="submit"
+                    className="rounded-md border border-emerald-600 bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700"
+                  >
+                    Request to book
+                  </button>
+                </div>
+              </form>
+            )}
+          </li>
+        );
+      })}
     </ul>
   );
 }

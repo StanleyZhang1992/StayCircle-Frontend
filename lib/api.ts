@@ -4,11 +4,13 @@ export interface Property {
   id: number;
   title: string;
   price_cents: number;
+  requires_approval?: boolean;
 }
 
 export interface PropertyCreate {
   title: string;
   price_cents: number;
+  requires_approval?: boolean;
 }
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
@@ -94,7 +96,7 @@ export async function login(payload: LoginPayload): Promise<TokenResponse> {
 }
 
 /* =========================
-   Bookings API (Sprint 2)
+   Bookings API (Sprint 7)
    ========================= */
 
 export interface Booking {
@@ -103,7 +105,11 @@ export interface Booking {
   guest_id: number;
   start_date: string; // "YYYY-MM-DD"
   end_date: string;   // "YYYY-MM-DD"
-  status: "reserved" | "cancelled";
+  status: "requested" | "pending_payment" | "confirmed" | "cancelled" | "cancelled_expired" | "declined";
+  total_cents: number;
+  currency: string; // e.g. "USD"
+  expires_at?: string | null; // RFC3339
+  cancel_reason?: string | null;
 }
 
 export interface BookingCreate {
@@ -112,7 +118,16 @@ export interface BookingCreate {
   end_date: string;   // "YYYY-MM-DD"
 }
 
-export async function createBooking(data: BookingCreate): Promise<Booking> {
+export type NextAction =
+  | { type: "await_approval" }
+  | { type: "pay"; expires_at: string };
+
+export interface BookingCreateResponse {
+  booking: Booking;
+  next_action: NextAction;
+}
+
+export async function createBooking(data: BookingCreate): Promise<BookingCreateResponse> {
   const token = getToken();
   const res = await fetch(`${API_BASE}/api/v1/bookings`, {
     method: "POST",
@@ -161,6 +176,38 @@ export async function cancelBooking(bookingId: number): Promise<Booking> {
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     throw new Error(`Failed to cancel booking: ${res.status} ${res.statusText} ${text}`);
+  }
+  return res.json();
+}
+
+export async function approveBooking(bookingId: number): Promise<Booking> {
+  const token = getToken();
+  const res = await fetch(`${API_BASE}/api/v1/bookings/${bookingId}/approve`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {})
+    }
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Failed to approve booking: ${res.status} ${res.statusText} ${text}`);
+  }
+  return res.json();
+}
+
+export async function declineBooking(bookingId: number): Promise<Booking> {
+  const token = getToken();
+  const res = await fetch(`${API_BASE}/api/v1/bookings/${bookingId}/decline`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {})
+    }
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Failed to decline booking: ${res.status} ${res.statusText} ${text}`);
   }
   return res.json();
 }
