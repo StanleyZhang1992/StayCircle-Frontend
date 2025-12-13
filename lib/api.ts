@@ -120,11 +120,38 @@ export interface BookingCreate {
 
 export type NextAction =
   | { type: "await_approval" }
-  | { type: "pay"; expires_at: string };
+  | { type: "pay"; expires_at: string; client_secret: string };
 
 export interface BookingCreateResponse {
   booking: Booking;
   next_action: NextAction;
+}
+
+/* =========================
+   Payments (Sprint 8)
+   ========================= */
+
+export interface PaymentInfoResponse {
+  booking_id: number;
+  client_secret: string;
+  expires_at: string; // RFC3339
+}
+
+export async function getPaymentInfo(bookingId: number): Promise<PaymentInfoResponse> {
+  const token = getToken();
+  const res = await fetch(`${API_BASE}/api/v1/bookings/${bookingId}/payment_info`, {
+    method: "GET",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {})
+    },
+    cache: "no-store"
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Failed to get payment info: ${res.status} ${res.statusText} ${text}`);
+  }
+  return res.json();
 }
 
 export async function createBooking(data: BookingCreate): Promise<BookingCreateResponse> {
@@ -210,4 +237,25 @@ export async function declineBooking(bookingId: number): Promise<Booking> {
     throw new Error(`Failed to decline booking: ${res.status} ${res.statusText} ${text}`);
   }
   return res.json();
+}
+
+export async function finalizePayment(bookingId: number): Promise<Booking | { status: string }> {
+  const token = getToken();
+  const res = await fetch(`${API_BASE}/api/v1/bookings/${bookingId}/finalize_payment`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {})
+    }
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Failed to finalize payment: ${res.status} ${res.statusText} ${text}`);
+  }
+  // Server may return the updated booking or a status object.
+  const ct = res.headers.get("Content-Type") || "";
+  if (ct.includes("application/json")) {
+    return res.json();
+  }
+  return { status: "ok" };
 }

@@ -5,7 +5,7 @@ import type { Property, PropertyCreate, BookingCreateResponse, NextAction } from
 import { listProperties, createProperty, createBooking } from "../lib/api";
 import { isLandlord, getAuth } from "../lib/auth";
 
-function isPayAction(a: NextAction): a is { type: "pay"; expires_at: string } {
+function isPayAction(a: NextAction): a is { type: "pay"; expires_at: string; client_secret: string } {
   return a.type === "pay";
 }
 

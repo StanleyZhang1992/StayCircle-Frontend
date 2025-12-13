@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { listMyBookings, cancelBooking, approveBooking, declineBooking, type Booking } from "../../lib/api";
+import { listMyBookings, cancelBooking, approveBooking, declineBooking, getPaymentInfo, type Booking } from "../../lib/api";
 import { getAuth } from "../../lib/auth";
+import BookingPaymentModal from "../../components/BookingPaymentModal";
 
 type Chip = { text: string; className: string };
 
@@ -57,6 +58,7 @@ export default function MyBookingsPage() {
   const [authed, setAuthed] = useState<boolean>(false);
   const [isLandlord, setIsLandlord] = useState<boolean>(false);
   const tick = useSecondTicker();
+  const [paymentModal, setPaymentModal] = useState<{ bookingId: number; clientSecret: string; expiresAt: string } | null>(null);
 
   async function refresh() {
     setLoading(true);
@@ -109,9 +111,31 @@ export default function MyBookingsPage() {
     }
   }
 
+  async function onPay(booking: Booking) {
+    try {
+      const info = await getPaymentInfo(booking.id);
+      setPaymentModal({ bookingId: booking.id, clientSecret: info.client_secret, expiresAt: info.expires_at });
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : "Failed to initialize payment";
+      alert(message);
+    }
+  }
+
   if (!authed) {
     return (
       <main className="mx-auto max-w-3xl p-4 md:p-6">
+      {paymentModal && (
+        <BookingPaymentModal
+          bookingId={paymentModal.bookingId}
+          clientSecret={paymentModal.clientSecret}
+          expiresAt={paymentModal.expiresAt}
+          onClose={() => setPaymentModal(null)}
+          onSuccess={() => {
+            setPaymentModal(null);
+            refresh();
+          }}
+        />
+      )}
         <h1 className="mb-4 text-2xl font-semibold">My bookings</h1>
         <p className="text-sm text-gray-600">Please sign in to view your bookings.</p>
       </main>
@@ -120,6 +144,18 @@ export default function MyBookingsPage() {
 
   return (
     <main className="mx-auto max-w-3xl p-4 md:p-6">
+      {paymentModal && (
+        <BookingPaymentModal
+          bookingId={paymentModal.bookingId}
+          clientSecret={paymentModal.clientSecret}
+          expiresAt={paymentModal.expiresAt}
+          onClose={() => setPaymentModal(null)}
+          onSuccess={() => {
+            setPaymentModal(null);
+            refresh();
+          }}
+        />
+      )}
       <div className="mb-4 flex items-center justify-between">
         <h1 className="text-2xl font-semibold">My bookings</h1>
         <button
@@ -180,6 +216,15 @@ export default function MyBookingsPage() {
                           Decline
                         </button>
                       </>
+                    )}
+                    {!isLandlord && b.status === "pending_payment" && (
+                      <button
+                        type="button"
+                        onClick={() => onPay(b)}
+                        className="rounded-md border border-indigo-600 bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700"
+                      >
+                        Pay
+                      </button>
                     )}
                     {isCancellable(b.status) && (
                       <button
