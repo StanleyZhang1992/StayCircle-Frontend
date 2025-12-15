@@ -259,3 +259,55 @@ export async function finalizePayment(bookingId: number): Promise<Booking | { st
   }
   return { status: "ok" };
 }
+
+/* =========================
+   Chat (Sprint 9)
+   ========================= */
+
+export interface ChatMessage {
+  id: number;
+  property_id: number;
+  sender_id: number;
+  text: string;
+  created_at: string; // RFC3339
+}
+
+export async function listMessagesHistory(propertyId: number, opts?: { limit?: number; since_id?: number }): Promise<ChatMessage[]> {
+  const token = getToken();
+  const qs = new URLSearchParams();
+  qs.set("property_id", String(propertyId));
+  if (opts?.limit != null) qs.set("limit", String(opts.limit));
+  if (opts?.since_id != null) qs.set("since_id", String(opts.since_id));
+  const res = await fetch(`${API_BASE}/api/v1/messages?${qs.toString()}`, {
+    method: "GET",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {})
+    },
+    cache: "no-store"
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Failed to load messages: ${res.status} ${res.statusText} ${text}`);
+  }
+  return res.json();
+}
+
+/**
+ * Build WS URL for chat endpoint given API_BASE and token.
+ * - http:// -> ws://
+ * - https:// -> wss://
+ */
+export function buildChatWsUrl(propertyId: number, token: string): string {
+  let base = API_BASE;
+  if (base.startsWith("https://")) {
+    base = "wss://" + base.slice("https://".length);
+  } else if (base.startsWith("http://")) {
+    base = "ws://" + base.slice("http://".length);
+  } else if (!base.startsWith("ws://") && !base.startsWith("wss://")) {
+    // Assume http-like and map to ws
+    base = "ws://" + base;
+  }
+  const url = `${base}/ws/chat/property/${propertyId}?token=${encodeURIComponent(token)}`;
+  return url;
+}

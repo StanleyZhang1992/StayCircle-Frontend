@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import type { Property, PropertyCreate, BookingCreateResponse, NextAction } from "../lib/api";
 import { listProperties, createProperty, createBooking } from "../lib/api";
 import { isLandlord, getAuth } from "../lib/auth";
+import ChatPanel from "../components/ChatPanel";
 
 function isPayAction(a: NextAction): a is { type: "pay"; expires_at: string; client_secret: string } {
   return a.type === "pay";
@@ -203,6 +204,7 @@ function PropertiesList({ items, canBook }: { items: Property[]; canBook: boolea
   const [awaitApprovalIds, setAwaitApprovalIds] = useState<Set<number>>(() => new Set());
   const [paymentHolds, setPaymentHolds] = useState<Record<number, string>>({}); // property_id -> expires_at (RFC3339)
   const [tick, setTick] = useState(0); // force rerender each second for countdown
+  const [openChatFor, setOpenChatFor] = useState<number | null>(null);
 
   useEffect(() => {
     const id = setInterval(() => setTick((t) => t + 1), 1000);
@@ -245,6 +247,22 @@ function PropertiesList({ items, canBook }: { items: Property[]; canBook: boolea
             {!!holdExpiresAt && (
               <div className="mt-2 rounded border border-emerald-300 bg-emerald-50 px-2 py-1 text-xs text-emerald-800">
                 Payment hold active — expires in {holdLeft}
+              </div>
+            )}
+
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setOpenChatFor(openChatFor === p.id ? null : p.id)}
+                className="rounded-md border border-indigo-600 bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700"
+              >
+                {openChatFor === p.id ? "Close chat" : "Message host"}
+              </button>
+            </div>
+
+            {openChatFor === p.id && (
+              <div className="mt-3">
+                <ChatPanel propertyId={p.id} />
               </div>
             )}
 
