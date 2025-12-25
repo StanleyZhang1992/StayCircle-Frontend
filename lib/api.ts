@@ -138,7 +138,7 @@ export async function login(payload: LoginPayload): Promise<TokenResponse> {
 }
 
 /* =========================
-   Bookings API (Sprint 7)
+   Bookings API
    ========================= */
 
 export interface Booking {
@@ -170,7 +170,7 @@ export interface BookingCreateResponse {
 }
 
 /* =========================
-   Payments (Sprint 8)
+   Payments
    ========================= */
 
 /**
@@ -335,7 +335,7 @@ export async function finalizePayment(bookingId: number): Promise<Booking | { st
 }
 
 /* =========================
-   Chat (Sprint 9)
+   Chat
    ========================= */
 
 /**
