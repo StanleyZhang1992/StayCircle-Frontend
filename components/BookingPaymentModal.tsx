@@ -1,3 +1,9 @@
+/**
+ * BookingPaymentModal renders Stripe's PaymentElement inside a modal dialog.
+ * - Shows a countdown for the booking hold window
+ * - Confirms payment client-side, then triggers server-side finalize
+ * This component only handles UI/flow; business rules live on the server.
+ */
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -5,6 +11,9 @@ import { loadStripe } from "@stripe/stripe-js";
 import { Elements, PaymentElement, useStripe, useElements } from "@stripe/react-stripe-js";
 import { finalizePayment } from "../lib/api";
 
+/**
+ * Props supplied by the booking page when invoking the modal.
+ */
 type Props = {
   bookingId: number;
   clientSecret: string;
@@ -13,6 +22,9 @@ type Props = {
   onSuccess: () => void;
 };
 
+/**
+ * Derive a mm:ss countdown string and an 'expired' boolean from an RFC3339 timestamp.
+ */
 function useCountdown(expiresAt: string) {
   const [left, setLeft] = useState<string>(() => {
     const end = new Date(expiresAt).getTime();
@@ -26,6 +38,7 @@ function useCountdown(expiresAt: string) {
   const [expired, setExpired] = useState<boolean>(() => Date.now() >= new Date(expiresAt).getTime());
 
   useEffect(() => {
+    // Tick once per second to update the remaining hold time and whether it has expired
     const id = setInterval(() => {
       const end = new Date(expiresAt).getTime();
       const now = Date.now();
@@ -42,6 +55,10 @@ function useCountdown(expiresAt: string) {
   return { left, expired };
 }
 
+/**
+ * Renders the PaymentElement and handles client-side confirmation.
+ * Expects Stripe Elements context to be provided by <Elements>.
+ */
 function InnerPayment({ bookingId, expiresAt, onClose, onSuccess }: Omit<Props, "clientSecret">) {
   const stripe = useStripe();
   const elements = useElements();
@@ -50,6 +67,10 @@ function InnerPayment({ bookingId, expiresAt, onClose, onSuccess }: Omit<Props, 
   const [error, setError] = useState<string | null>(null);
   const [elementReady, setElementReady] = useState(false);
 
+  /**
+   * Submit PaymentElement fields, confirm the PaymentIntent, and ask the API to finalize.
+   * Any non-fatal API errors after confirmation simply cause the UI to refresh state.
+   */
   async function onConfirm() {
     if (!stripe || !elements) return;
     setProcessing(true);
@@ -108,10 +129,15 @@ function InnerPayment({ bookingId, expiresAt, onClose, onSuccess }: Omit<Props, 
   );
 }
 
+/**
+ * Wrap the inner payment form with Stripe's <Elements> using the provided clientSecret.
+ */
 export default function BookingPaymentModal({ bookingId, clientSecret, expiresAt, onClose, onSuccess }: Props) {
   const publishableKey = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY || "";
+  // Lazily initialize Stripe.js once a publishable key is available
   const stripePromise = useMemo(() => (publishableKey ? loadStripe(publishableKey) : null), [publishableKey]);
 
+  // Developer ergonomics: surface a clear message when the publishable key is not configured
   if (!publishableKey) {
     return (
       <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4">

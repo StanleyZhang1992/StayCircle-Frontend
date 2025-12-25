@@ -1,5 +1,15 @@
+/**
+ * Thin API client used by the Next.js frontend to talk to the FastAPI backend.
+ * - Reads the JWT from local storage (via ./auth) and attaches it as a Bearer token when present
+ * - Throws on non-2xx responses with a helpful error message
+ * - Avoids caching for GETs that should reflect fresh server state
+ */
 import { getToken, saveAuth } from "./auth";
 import type { User, Role } from "./auth";
+/**
+ * Server-side property shape exposed by the API.
+ * Keep in sync with backend/app/schemas.py: PropertyRead
+ */
 export interface Property {
   id: number;
   title: string;
@@ -7,14 +17,27 @@ export interface Property {
   requires_approval?: boolean;
 }
 
+/**
+ * Payload for creating a property listing.
+ * Keep in sync with backend/app/schemas.py: PropertyCreate
+ */
 export interface PropertyCreate {
   title: string;
   price_cents: number;
   requires_approval?: boolean;
 }
 
+/**
+ * Base URL of the API gateway. Configurable via NEXT_PUBLIC_API_BASE_URL at build/runtime.
+ * Defaults to http://localhost:8000 for local development.
+ */
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
+/**
+ * List properties.
+ * - If the caller is a landlord (token present), the backend returns only their listings.
+ * - Otherwise returns all listings.
+ */
 export async function listProperties(): Promise<Property[]> {
   const token = getToken();
   const res = await fetch(`${API_BASE}/api/v1/properties`, {
@@ -31,6 +54,9 @@ export async function listProperties(): Promise<Property[]> {
   return res.json();
 }
 
+/**
+ * Create a property listing as the authenticated landlord.
+ */
 export async function createProperty(data: PropertyCreate): Promise<Property> {
   const token = getToken();
   const res = await fetch(`${API_BASE}/api/v1/properties`, {
@@ -48,23 +74,36 @@ export async function createProperty(data: PropertyCreate): Promise<Property> {
   return res.json();
 }
 
+/**
+ * Signup request payload.
+ * role defaults to "tenant" if omitted.
+ */
 export interface SignupPayload {
   email: string;
   password: string;
   role?: Role; // "landlord" | "tenant" (defaults to "tenant" if omitted)
 }
 
+/**
+ * Login request payload.
+ */
 export interface LoginPayload {
   email: string;
   password: string;
 }
 
+/**
+ * Token response envelope from the auth endpoints.
+ */
 export interface TokenResponse {
   access_token: string;
   token_type: string;
   user: User;
 }
 
+/**
+ * Register a new user account and persist auth to local storage on success.
+ */
 export async function signup(payload: SignupPayload): Promise<TokenResponse> {
   const res = await fetch(`${API_BASE}/auth/signup`, {
     method: "POST",
@@ -80,6 +119,9 @@ export async function signup(payload: SignupPayload): Promise<TokenResponse> {
   return data;
 }
 
+/**
+ * Authenticate a user and persist auth to local storage on success.
+ */
 export async function login(payload: LoginPayload): Promise<TokenResponse> {
   const res = await fetch(`${API_BASE}/auth/login`, {
     method: "POST",
@@ -131,12 +173,19 @@ export interface BookingCreateResponse {
    Payments (Sprint 8)
    ========================= */
 
+/**
+ * Payment intent details used by Stripe's PaymentElement on the client.
+ * Keep in sync with backend/app/schemas.py: PaymentInfoResponse
+ */
 export interface PaymentInfoResponse {
   booking_id: number;
   client_secret: string;
   expires_at: string; // RFC3339
 }
 
+/**
+ * Ensure a PaymentIntent exists for a pending-payment booking and fetch its client_secret.
+ */
 export async function getPaymentInfo(bookingId: number): Promise<PaymentInfoResponse> {
   const token = getToken();
   const res = await fetch(`${API_BASE}/api/v1/bookings/${bookingId}/payment_info`, {
@@ -154,6 +203,12 @@ export async function getPaymentInfo(bookingId: number): Promise<PaymentInfoResp
   return res.json();
 }
 
+/**
+ * Create a booking.
+ * Next action returned by the backend is either:
+ * - { type: "await_approval" } when the listing requires landlord approval
+ * - { type: "pay", expires_at, client_secret } when the user should proceed to payment
+ */
 export async function createBooking(data: BookingCreate): Promise<BookingCreateResponse> {
   const token = getToken();
   const res = await fetch(`${API_BASE}/api/v1/bookings`, {
@@ -171,6 +226,11 @@ export async function createBooking(data: BookingCreate): Promise<BookingCreateR
   return res.json();
 }
 
+/**
+ * List bookings that involve the current user.
+ * - Tenants see their own bookings
+ * - Landlords see bookings for their listings
+ */
 export async function listMyBookings(params?: { limit?: number; offset?: number }): Promise<Booking[]> {
   const token = getToken();
   const qs = new URLSearchParams();
@@ -191,6 +251,10 @@ export async function listMyBookings(params?: { limit?: number; offset?: number 
   return res.json();
 }
 
+/**
+ * Cancel a booking the user owns (tenant) or that belongs to their listing (landlord).
+ * Idempotent on the server side.
+ */
 export async function cancelBooking(bookingId: number): Promise<Booking> {
   const token = getToken();
   const res = await fetch(`${API_BASE}/api/v1/bookings/${bookingId}`, {
@@ -207,6 +271,9 @@ export async function cancelBooking(bookingId: number): Promise<Booking> {
   return res.json();
 }
 
+/**
+ * Approve a requested booking (landlord only), moving it to pending_payment.
+ */
 export async function approveBooking(bookingId: number): Promise<Booking> {
   const token = getToken();
   const res = await fetch(`${API_BASE}/api/v1/bookings/${bookingId}/approve`, {
@@ -223,6 +290,9 @@ export async function approveBooking(bookingId: number): Promise<Booking> {
   return res.json();
 }
 
+/**
+ * Decline a requested booking (landlord only).
+ */
 export async function declineBooking(bookingId: number): Promise<Booking> {
   const token = getToken();
   const res = await fetch(`${API_BASE}/api/v1/bookings/${bookingId}/decline`, {
@@ -239,6 +309,10 @@ export async function declineBooking(bookingId: number): Promise<Booking> {
   return res.json();
 }
 
+/**
+ * Finalize a booking after client-side payment confirmation when webhooks are unavailable.
+ * The server may respond with the updated Booking or a { status: "processing" | "ok" } object.
+ */
 export async function finalizePayment(bookingId: number): Promise<Booking | { status: string }> {
   const token = getToken();
   const res = await fetch(`${API_BASE}/api/v1/bookings/${bookingId}/finalize_payment`, {
@@ -264,6 +338,9 @@ export async function finalizePayment(bookingId: number): Promise<Booking | { st
    Chat (Sprint 9)
    ========================= */
 
+/**
+ * Chat message shape returned by the history endpoint and WS messages.
+ */
 export interface ChatMessage {
   id: number;
   property_id: number;
@@ -272,6 +349,10 @@ export interface ChatMessage {
   created_at: string; // RFC3339
 }
 
+/**
+ * Fetch chat history for a property.
+ * - since_id enables forward-only pagination with stable ordering
+ */
 export async function listMessagesHistory(propertyId: number, opts?: { limit?: number; since_id?: number }): Promise<ChatMessage[]> {
   const token = getToken();
   const qs = new URLSearchParams();
@@ -294,7 +375,8 @@ export async function listMessagesHistory(propertyId: number, opts?: { limit?: n
 }
 
 /**
- * Build WS URL for chat endpoint given API_BASE and token.
+ * Build the WebSocket URL for the chat endpoint given API_BASE and a JWT.
+ * Mapping:
  * - http:// -> ws://
  * - https:// -> wss://
  */

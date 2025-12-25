@@ -1,3 +1,11 @@
+/**
+ * Home (properties) page
+ * - Lists properties for both anonymous users and authenticated users
+ * - Landlords can create new listings
+ * - Tenants can request bookings and open chat with hosts
+ * Notes:
+ * - Keep UI logic here; network/contracts live in frontend/lib/*
+ */
 "use client";
 
 import { useEffect, useState } from "react";
@@ -6,14 +14,18 @@ import { listProperties, createProperty, createBooking } from "../lib/api";
 import { isLandlord, getAuth } from "../lib/auth";
 import ChatPanel from "../components/ChatPanel";
 
+/**
+ * Type guard for the "pay" next_action variant.
+ */
 function isPayAction(a: NextAction): a is { type: "pay"; expires_at: string; client_secret: string } {
   return a.type === "pay";
 }
 
 /**
  * HomePage
- * - Tailwind-only refactor (no new data libs).
- * - Orchestrates loading + refresh and composes smaller components.
+ * - Orchestrates fetching property listings and composes child components
+ * - Shows a creation form for landlords
+ * - Delegates chat and booking flows to dedicated components/helpers
  */
 export default function HomePage() {
   const [items, setItems] = useState<Property[]>([]);
@@ -37,7 +49,7 @@ export default function HomePage() {
   }
 
   useEffect(() => {
-    // Initial load
+    // Load properties on initial mount
     refresh();
   }, []);
 
@@ -94,8 +106,8 @@ export default function HomePage() {
 
 /**
  * CreatePropertyForm
- * - Local state only; minimal validation.
- * - Uses Tailwind for styling.
+ * - Minimal local validation and client-only state
+ * - Converts USD input to price_cents for the API
  */
 function CreatePropertyForm({ onCreated }: { onCreated: (p: Property) => void }) {
   const [title, setTitle] = useState("");
@@ -196,8 +208,8 @@ function CreatePropertyForm({ onCreated }: { onCreated: (p: Property) => void })
 
 /**
  * PropertiesList
- * - Presentation + simple booking request flow (Sprint 7).
- * - Shows status banners for awaiting approval / pending payment countdown.
+ * - Renders properties and a simple booking request form
+ * - Displays status banners for "await approval" and "pending payment" (with countdown)
  */
 function PropertiesList({ items, canBook }: { items: Property[]; canBook: boolean }) {
   // Track per-property next_action state

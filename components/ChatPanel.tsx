@@ -1,3 +1,15 @@
+/**
+ * ChatPanel
+ * Client-side chat UI for a single property.
+ *
+ * Responsibilities:
+ * - Load initial history via HTTP (listMessagesHistory)
+ * - Maintain a resilient WebSocket connection with exponential backoff
+ * - Render live messages and a simple input with optimistic append
+ * - De-duplicate incoming messages by id to avoid double-renders
+ *
+ * Business rules (authz, rate limiting, persistence) live on the server.
+ */
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -8,12 +20,21 @@ import {
   listMessagesHistory,
 } from "../lib/api";
 
+/**
+ * Component props.
+ */
 type Props = {
   propertyId: number;
 };
 
+/**
+ * Connection state indicator for the WS session.
+ */
 type ConnState = "disconnected" | "connecting" | "connected" | "error";
 
+/**
+ * Renders the chat transcript and input for a given property.
+ */
 export default function ChatPanel({ propertyId }: Props) {
   const auth = getAuth();
   const token = getToken();
@@ -31,13 +52,13 @@ export default function ChatPanel({ propertyId }: Props) {
     return t.length > 0 && t.length <= 1000 && connState === "connected";
   }, [input, connState]);
 
-  // Auto-scroll on new messages
+  // Auto-scroll to bottom whenever new messages arrive
   useEffect(() => {
     if (!scrollerRef.current) return;
     scrollerRef.current.scrollTop = scrollerRef.current.scrollHeight;
   }, [messages]);
 
-  // Fetch history on mount
+  // Fetch recent chat history on mount (or when property changes)
   useEffect(() => {
     let mounted = true;
     (async () => {
@@ -57,6 +78,10 @@ export default function ChatPanel({ propertyId }: Props) {
     };
   }, [propertyId]);
 
+  /**
+   * Establish a WebSocket connection and wire event handlers.
+   * Uses exponential backoff reconnect (capped) on disconnects.
+   */
   const connect = useCallback(() => {
     if (!token || connectingRef.current) return;
     connectingRef.current = true;
@@ -78,11 +103,11 @@ export default function ChatPanel({ propertyId }: Props) {
       try {
         const data = JSON.parse(String(evt.data));
         if (data && typeof data === "object" && data.type === "error") {
-          // Server-provided error frame
+            // Server-provided error frame (e.g., auth/ratelimit). Do not close the socket automatically.
           setError(`${data.code}: ${data.message}`);
           return;
         }
-        // Expect a ChatMessage
+        // Expect a ChatMessage payload (from WS or Redis fan-out)
         const msg = data as ChatMessage;
         if (
           typeof msg.id === "number" &&
@@ -104,7 +129,7 @@ export default function ChatPanel({ propertyId }: Props) {
     ws.onclose = () => {
       connectingRef.current = false;
       setConnState("disconnected");
-      // Exponential backoff reconnect (capped)
+      // Exponential backoff reconnect (capped at 5s)
       const attempt = (reconnectAttemptsRef.current = reconnectAttemptsRef.current + 1);
       const timeout = Math.min(5000, 300 * attempt);
       setTimeout(() => {
@@ -138,6 +163,10 @@ export default function ChatPanel({ propertyId }: Props) {
     };
   }, [connect, token]);
 
+  /**
+   * Send a message over the active WS connection.
+   * Performs light client-side validation and optimistic append with a temp id.
+   */
   const send = useCallback(
     (e?: React.FormEvent) => {
       if (e) e.preventDefault();
@@ -147,7 +176,7 @@ export default function ChatPanel({ propertyId }: Props) {
         setError("Message must be 1..1000 characters");
         return;
       }
-      // Optimistic append (temporary negative id)
+      // Optimistic append (temporary negative id ensures it won't clash with server-issued ids)
       const tmpId = -Date.now();
       const optimistic: ChatMessage = {
         id: tmpId,
@@ -168,6 +197,7 @@ export default function ChatPanel({ propertyId }: Props) {
     [connState, input, propertyId, auth]
   );
 
+  // Guard: require a logged-in user with a JWT before exposing the chat UI
   if (!auth || !token) {
     return (
       <div className="rounded-md border border-gray-300 bg-white p-3 text-sm">

@@ -1,3 +1,12 @@
+/**
+ * NavBar
+ * Client component that reflects auth state across the app.
+ *
+ * Behavior:
+ * - Reads current auth from localStorage (via frontend/lib/auth)
+ * - Subscribes to AUTH_EVENT to stay in sync after login/logout on other pages
+ * - Renders role badge and session-aware actions
+ */
 "use client";
 
 import Link from "next/link";
@@ -17,6 +26,7 @@ export default function NavBar() {
   const [role, setRole] = useState<"landlord" | "tenant" | null>(null);
 
   useEffect(() => {
+    // Keep component state in sync with persisted auth
     const updateFromAuth = () => {
       const a = getAuth();
       if (a) {
@@ -31,7 +41,7 @@ export default function NavBar() {
     // Initial read
     updateFromAuth();
 
-    // Subscribe to auth changes
+    // Subscribe to auth changes (e.g., when another tab/page logs in or out)
     if (typeof window !== "undefined") {
       window.addEventListener(AUTH_EVENT, updateFromAuth as EventListener);
     }
@@ -42,6 +52,10 @@ export default function NavBar() {
     };
   }, []);
 
+  /**
+   * Clear local auth and navigate home.
+   * Server-side tokens are stateless JWTs, so no server call is necessary.
+   */
   function onLogout() {
     clearAuth();
     // Reset local UI state
@@ -58,6 +72,7 @@ export default function NavBar() {
         </Link>
 
         {email ? (
+          // Authenticated state: show user identity, role badge, and actions
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-2 text-sm text-gray-700">
               <span className="truncate">{email}</span>
@@ -88,6 +103,7 @@ export default function NavBar() {
             </button>
           </div>
         ) : (
+          // Anonymous state: show "guest" badge and auth entry points
           <nav className="flex items-center gap-2">
             <span
               className={

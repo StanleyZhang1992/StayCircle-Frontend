@@ -1,3 +1,10 @@
+/**
+ * My Bookings page
+ * - Lists bookings for the current user
+ * - Tenants can pay or cancel
+ * - Landlords can approve/decline requests
+ * - Integrates Stripe via a lightweight modal when payment is required
+ */
 "use client";
 
 import { useEffect, useState } from "react";
@@ -7,6 +14,9 @@ import BookingPaymentModal from "../../components/BookingPaymentModal";
 
 type Chip = { text: string; className: string };
 
+/**
+ * Map a booking status to a small visual chip.
+ */
 function chipForStatus(status: Booking["status"]): Chip {
   switch (status) {
     case "requested":
@@ -26,11 +36,18 @@ function chipForStatus(status: Booking["status"]): Chip {
   }
 }
 
+/**
+ * True if the booking can still be cancelled by the actor.
+ * Non-terminal states only.
+ */
 function isCancellable(status: Booking["status"]): boolean {
   // Allow cancel while non-terminal
   return status === "requested" || status === "pending_payment" || status === "confirmed";
 }
 
+/**
+ * Ticks once per second; useful for countdown UI updates.
+ */
 function useSecondTicker() {
   const [tick, setTick] = useState(0);
   useEffect(() => {
@@ -40,6 +57,9 @@ function useSecondTicker() {
   return tick;
 }
 
+/**
+ * Format an RFC3339 expiry into a mm:ss countdown.
+ */
 function countdown(expires_at?: string | null): string | null {
   if (!expires_at) return null;
   const end = new Date(expires_at).getTime();
@@ -51,6 +71,9 @@ function countdown(expires_at?: string | null): string | null {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
+/**
+ * Render bookings for the current session and surface context-appropriate actions.
+ */
 export default function MyBookingsPage() {
   const [items, setItems] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
@@ -121,6 +144,7 @@ export default function MyBookingsPage() {
     }
   }
 
+  // Guard: require authentication to see personal bookings
   if (!authed) {
     return (
       <main className="mx-auto max-w-3xl p-4 md:p-6">
