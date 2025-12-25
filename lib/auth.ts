@@ -15,7 +15,7 @@ const STORAGE_KEY = "sc_auth";
 export const AUTH_EVENT = "sc-auth-change";
 
 export function saveAuth(state: AuthState): void {
-  if (typeof window === "undefined") return;
+  if (typeof window === "undefined") return;  // prevents error due to SSRs
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   try {
     window.dispatchEvent(new CustomEvent(AUTH_EVENT, { detail: { state } }));
